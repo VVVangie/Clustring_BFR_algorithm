@@ -21,6 +21,7 @@ output_file = sys.argv[3]
 
 time_start = time.time()
 
+#At each run, including the initialization step, you need to count and output the number of the discard points, the number of the clusters in the CS, the number of the compression points, and the number of the points in the retained set.
 def intermediate_output(DS_lst, CS_lst, RS_lst):
     num_ds_points = 0
     for i in range(len(DS_lst)):
@@ -130,10 +131,11 @@ choose_num = math.ceil(float(points_sum_length)*0.2)
 dimension = len(left_points[0])
 
 #random.seed(553)
+#Step 1. Load 20% of the data randomly.
 chosen_points = left_points[:choose_num]
 left_points = left_points[choose_num:]
 
-#Step 2. 
+#Step 2. Run K-Means (e.g., from sklearn) with a large K (e.g., 5 times of the number of the input clusters) on the data in memory using the Euclidean distance as the similarity measurement.
 index_del = []
 first_RS = []
 
@@ -141,7 +143,7 @@ import_points = np.array(chosen_points)
 kmeans = KMeans(n_clusters = 5 * n_cluster).fit(import_points)
 label_result = kmeans.labels_.tolist()
 
-#Step 3.
+#Step 3.  In the K-Means result from Step 2, move all the clusters that contain only one point to RS (outliers).
 for label in set(label_result):
     point_num = label_result.count(label)
 
@@ -152,13 +154,13 @@ for label in set(label_result):
         index_del.append(point_index)
 clustered_points = [clu for i,clu in enumerate(chosen_points) if i not in index_del]
 
-#Step 4.
+#Step 4.  Run K-Means again to cluster the rest of the data points with K = the number of input clusters.
 updated_import_points = np.array(clustered_points)
 kmeans_2 = KMeans(n_clusters = n_cluster).fit(updated_import_points)
 clusters_1 = kmeans_2.labels_.tolist()
 centroids_1 = kmeans_2.cluster_centers_.tolist()
 
-#Step 5.
+#Step 5. Use the K-Means result from Step 4 to generate the DS clusters (i.e., discard their points and generate statistics).
 DS_cluster_1 = []
 for cluster_label in set(clusters_1):
     cluster_points = []
@@ -168,7 +170,7 @@ for cluster_label in set(clusters_1):
     #cluster_centroid = tuple(centroids_1[cluster_label])
     DS_cluster_1.append(cluster_points)
 
-#Step 6.
+#Step 6.  Run K-Means on the points in the RS with a large K (e.g., 5 times of the number of the input clusters) to generate CS (clusters with more than one points) and RS (clusters with only one point).
 CS_map_1 = []
 if len(first_RS) > 5 * n_cluster:
     RS_import_points = np.array(first_RS)
@@ -201,7 +203,7 @@ current_CS_stats = get_stats(now_CS)
 round_num = 2
 
 while round_num <= 5:
-    #Step 7.
+ #Step 7. Load another 20% of the data randomly.
     if round_num < 5:
         updated_chosen_point = left_points[:choose_num]
         left_points = left_points[choose_num:]
@@ -210,7 +212,9 @@ while round_num <= 5:
     
 
     for the_point in updated_chosen_point:
-        #Step 8.
+        #Step 8. For the new points, compare them to each of the DS using the Mahalanobis Distance and assign them to the nearest DS clusters if the distance is < 2√d. 
+
+
         #get nearest distance to DS:
         ds_nearest_dis = float('+inf')
         for i in range(len(now_DS)):
@@ -219,7 +223,7 @@ while round_num <= 5:
             if the_distance < ds_nearest_dis:
                 ds_nearest_dis = the_distance
                 nearest_clu_index = i
-        #Step 9.
+        #Step 9. For the new points that are not assigned to DS clusters, using the Mahalanobis Distance and assign the points to the nearest CS clusters if the distance is < 2√d
         #get nearest distance to CS:
         cs_nearest_dis = float('+inf')
         for j in range(len(now_CS)):
@@ -236,9 +240,9 @@ while round_num <= 5:
             now_CS[closest_clu_index].append(the_point)
             current_CS_stats[closest_clu_index] = update_stats(the_point,closest_clu_index,current_CS_stats)
         else:
-            now_RS.append(the_point) #Step 10.
+            now_RS.append(the_point) #Step 10.  For the new points that are not assigned to a DS cluster or a CS cluster, assign them to RS.
             
-    #Step 11.
+    #Step 11. Run K-Means on the RS with a large K (e.g., 5 times of the number of the input clusters) to generate CS (clusters with more than one points) and RS (clusters with only one point).
     if len(now_RS) > 5 * n_cluster:
         RS_import_ones = np.array(now_RS)
         kmeans_run = KMeans(n_clusters = 5 * n_cluster).fit(RS_import_ones)
@@ -258,7 +262,9 @@ while round_num <= 5:
             now_RS.remove(g)
         current_CS_stats = get_stats(now_CS)
         
-    #Step 12.
+    #Step 12. Merge CS clusters that have a Mahalanobis Distance < 2√?. 
+
+
     combine_pairs = []
     already_combined = []
     for i in range(len(now_CS)):
@@ -280,6 +286,7 @@ while round_num <= 5:
     now_CS = updated_CS
     current_CS_stats = get_stats(now_CS)
     
+    #This is the last run (after the last chunk of data), merge CS clusters with DS clusters that have a Mahalanobis Distance < 2√d.
     if round_num == 5:
         del_cs_index = []
         for i in range(len(now_CS)):
